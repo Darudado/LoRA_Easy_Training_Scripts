@@ -2,7 +2,6 @@ from PySide6.QtCore import Signal
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QCheckBox,
-    QDoubleSpinBox,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -52,17 +51,17 @@ class AnimaWidget(BaseWidget):
 
     def _setup_resolution_schedule_editor(self) -> None:
         self._schedule_rows = []
-        self.schedule_group = QGroupBox("Resolution Schedule", self.widget.anima_training_box)
+        self.schedule_group = QGroupBox("Multi Resolution Schedule", self.widget.anima_training_box)
         layout = QVBoxLayout(self.schedule_group)
         description = QLabel(
-            "Run resolution stages sequentially. Each stage preserves aspect ratio; large images downscale, "
-            "small images never upscale. Percentages use optimizer steps."
+            "Train sequentially at multiple resolutions. Enable this section, then set each stage's resolution, "
+            "whole-step percentage, and batch size. Aspect ratio is preserved; small images never upscale."
         )
         description.setWordWrap(True)
         description.setToolTip("The model, optimizer, and learning-rate schedule remain live between stages.")
         layout.addWidget(description)
 
-        self.schedule_enabled = QCheckBox("Enable resolution schedule")
+        self.schedule_enabled = QCheckBox("Enable multi resolution schedule")
         self.schedule_enabled.setToolTip("Per-stage batch sizes replace General Args batch size while enabled.")
         layout.addWidget(self.schedule_enabled)
 
@@ -87,7 +86,7 @@ class AnimaWidget(BaseWidget):
         self.add_schedule_button.clicked.connect(self.add_schedule_row)
         self._sync_resolution_schedule()
 
-    def _append_schedule_row(self, resolution: int, batch_size: int, percent: float = 100.0) -> None:
+    def _append_schedule_row(self, resolution: int, batch_size: int, percent: int = 100) -> None:
         row_widget = QWidget(self.schedule_group)
         layout = QHBoxLayout(row_widget)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -96,9 +95,9 @@ class AnimaWidget(BaseWidget):
         resolution_input.setSingleStep(64)
         resolution_input.setValue(resolution)
         resolution_input.setToolTip("Maximum stage area, expressed as a square side. Buckets preserve image aspect ratio.")
-        percent_input = QDoubleSpinBox()
-        percent_input.setRange(0.1, 100.0)
-        percent_input.setDecimals(2)
+        percent_input = QSpinBox()
+        percent_input.setRange(0, 100)
+        percent_input.setSuffix("%")
         percent_input.setValue(percent)
         batch_input = QSpinBox()
         batch_input.setRange(1, 1024)
@@ -144,19 +143,22 @@ class AnimaWidget(BaseWidget):
         if not self._schedule_rows:
             return
         requested = sum(row.percent.value() for row in self._schedule_rows[:-1])
-        remaining = max(0.0, 100.0 - requested)
+        remaining = max(0, 100 - requested)
         final = self._schedule_rows[-1]
+        for row in self._schedule_rows[:-1]:
+            row.percent.setEnabled(True)
         final.percent.blockSignals(True)
-        final.percent.setValue(remaining if remaining > 0 else final.percent.minimum())
+        final.percent.setValue(remaining)
         final.percent.blockSignals(False)
         final.percent.setEnabled(False)
-        self.schedule_total_label.setText(f"Total: {requested + remaining:.2f}% (final stage automatic)")
-        self.schedule_total_label.setStyleSheet("color: #b00020;" if requested >= 100.0 else "")
-        self.add_schedule_button.setEnabled(requested < 100.0)
+        has_empty_stage = any(row.percent.value() <= 0 for row in self._schedule_rows[:-1])
+        self.schedule_total_label.setText(f"Total: {requested + remaining}% (final stage automatic)")
+        self.schedule_total_label.setStyleSheet("color: #b00020;" if requested >= 100 or has_empty_stage else "")
+        self.add_schedule_button.setEnabled(requested < 100)
         if not self.schedule_enabled.isChecked():
             self.args.pop("resolution_schedule", None)
             return
-        if requested >= 100.0:
+        if requested >= 100 or has_empty_stage:
             self.args.pop("resolution_schedule", None)
             return
         schedule = []

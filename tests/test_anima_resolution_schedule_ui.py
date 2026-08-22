@@ -3,7 +3,7 @@ import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QSpinBox
 
 from main_ui_files.AnimaUI import AnimaWidget
 
@@ -31,11 +31,27 @@ class AnimaResolutionScheduleUiTest(unittest.TestCase):
         self.assertEqual(
             widget.args["resolution_schedule"],
             [
-                {"resolution": 512, "percent": 30.0, "batch_size": 4},
+                {"resolution": 512, "percent": 30, "batch_size": 4},
                 {"resolution": 1024, "batch_size": 2},
             ],
         )
         self.assertEqual(final.percent.value(), 70.0)
+        self.assertFalse(final.percent.isEnabled())
+
+    def test_multi_resolution_editor_uses_editable_whole_percentages(self):
+        widget = AnimaWidget()
+        widget.widget.anima_training_box.setChecked(True)
+        widget.enable_disable(True)
+        widget.schedule_enabled.setChecked(True)
+        widget.add_schedule_row()
+
+        first, final = widget._schedule_rows
+
+        self.assertEqual(widget.schedule_group.title(), "Multi Resolution Schedule")
+        self.assertIsInstance(first.percent, QSpinBox)
+        self.assertEqual((first.percent.minimum(), first.percent.maximum()), (0, 100))
+        self.assertTrue(first.resolution.isEnabled())
+        self.assertTrue(first.percent.isEnabled())
         self.assertFalse(final.percent.isEnabled())
 
 
