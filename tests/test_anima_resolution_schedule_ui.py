@@ -54,6 +54,31 @@ class AnimaResolutionScheduleUiTest(unittest.TestCase):
         self.assertTrue(first.percent.isEnabled())
         self.assertFalse(final.percent.isEnabled())
 
+    def test_loading_schedule_preserves_explicit_percentages(self):
+        widget = AnimaWidget()
+
+        widget.load_args(
+            {
+                "anima_args": {
+                    "resolution_schedule": [
+                        {"resolution": 512, "percent": 70, "batch_size": 14},
+                        {"resolution": 1024, "percent": 20, "batch_size": 7},
+                        {"resolution": 1536, "batch_size": 1},
+                    ]
+                }
+            }
+        )
+
+        self.assertEqual([row.percent.value() for row in widget._schedule_rows], [70, 20, 10])
+        self.assertEqual(
+            widget.args["resolution_schedule"],
+            [
+                {"resolution": 512, "percent": 70, "batch_size": 14},
+                {"resolution": 1024, "percent": 20, "batch_size": 7},
+                {"resolution": 1536, "batch_size": 1},
+            ],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -51,6 +51,7 @@ class AnimaWidget(BaseWidget):
 
     def _setup_resolution_schedule_editor(self) -> None:
         self._schedule_rows = []
+        self._loading_resolution_schedule = False
         self.schedule_group = QGroupBox("Multi Resolution Schedule", self.widget.anima_training_box)
         layout = QVBoxLayout(self.schedule_group)
         description = QLabel(
@@ -140,6 +141,8 @@ class AnimaWidget(BaseWidget):
         self._sync_resolution_schedule()
 
     def _sync_resolution_schedule(self, *_args) -> None:
+        if self._loading_resolution_schedule:
+            return
         if not self._schedule_rows:
             return
         requested = sum(row.percent.value() for row in self._schedule_rows[:-1])
@@ -339,17 +342,22 @@ class AnimaWidget(BaseWidget):
         self.widget.unsloth_offload_checkpointing.setChecked(args.get("unsloth_offload_checkpointing", False))
 
         schedule = args.get("resolution_schedule")
-        if schedule:
-            while len(self._schedule_rows) > 1:
-                self._remove_schedule_row(self._schedule_rows[-1])
-            first = schedule[0]
-            self._schedule_rows[0].resolution.setValue(first.get("resolution", 1024))
-            self._schedule_rows[0].batch_size.setValue(first.get("batch_size", 1))
-            self._schedule_rows[0].percent.setValue(first.get("percent", 100))
-            for stage in schedule[1:]:
-                self._append_schedule_row(stage.get("resolution", 1024), stage.get("batch_size", 1), stage.get("percent", 100))
-            self.schedule_enabled.setChecked(True)
-        else:
-            self.schedule_enabled.setChecked(False)
+        self._loading_resolution_schedule = True
+        try:
+            if schedule:
+                while len(self._schedule_rows) > 1:
+                    self._remove_schedule_row(self._schedule_rows[-1])
+                first = schedule[0]
+                self._schedule_rows[0].resolution.setValue(first.get("resolution", 1024))
+                self._schedule_rows[0].batch_size.setValue(first.get("batch_size", 1))
+                self._schedule_rows[0].percent.setValue(first.get("percent", 100))
+                for stage in schedule[1:]:
+                    self._append_schedule_row(stage.get("resolution", 1024), stage.get("batch_size", 1), stage.get("percent", 100))
+                self.schedule_enabled.setChecked(True)
+            else:
+                self.schedule_enabled.setChecked(False)
+        finally:
+            self._loading_resolution_schedule = False
+        self._sync_resolution_schedule()
 
         self.enable_disable(self.widget.anima_training_box.isChecked())
