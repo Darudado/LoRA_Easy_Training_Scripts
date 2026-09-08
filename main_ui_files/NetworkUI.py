@@ -8,18 +8,19 @@ from modules.CollapsibleWidget import CollapsibleWidget
 
 
 class NetworkWidget(BaseWidget):
+    DEFAULTS = {
+        "network_dim": 32,
+        "network_alpha": 16.0,
+        "min_timestep": 0,
+        "max_timestep": 1000,
+    }
+
     def __init__(self, parent: QWidget = None) -> None:
         super().__init__(parent)
         self.colap.set_title("Network Args")
         self.widget = Ui_network_ui()
 
         self.name = "network_args"
-        self.args = {
-            "network_dim": 32,
-            "network_alpha": 16.0,
-            "min_timestep": 0,
-            "max_timestep": 1000,
-        }
         self.lycoris = False
         self.network_args: list[OptimizerItem] = []
 
@@ -68,13 +69,25 @@ class NetworkWidget(BaseWidget):
         self.widget.block_weight_scroll_widget.layout().setAlignment(QtCore.Qt.AlignmentFlag.AlignTop)
         self.widget.block_weight_scroll_widget.layout().setSpacing(0)
 
+        # Configure conv_dim and conv_alpha inputs to support 0 (disables conv layers)
+        self.widget.conv_dim_input.setMinimum(0)
+        self.widget.conv_alpha_input.setMinimum(0.0)
+        self.widget.conv_dim_input.setEnabled(True)
+        self.widget.conv_alpha_input.setEnabled(True)
+        conv_dim_tooltip = "Conv Dimension represents the size of the Convolutional Dimensions of the model. Set to 0 to disable conv layers entirely."
+        conv_alpha_tooltip = "Conv Alpha represents the alpha of the Conv Dimensions."
+        self.widget.conv_dim_label.setToolTip(conv_dim_tooltip)
+        self.widget.conv_dim_input.setToolTip(conv_dim_tooltip)
+        self.widget.conv_alpha_label.setToolTip(conv_alpha_tooltip)
+        self.widget.conv_alpha_input.setToolTip(conv_alpha_tooltip)
+
     def setup_connections(self) -> None:
         self.widget.algo_select.currentTextChanged.connect(self.change_algo)
         self.widget.lycoris_preset_input.textChanged.connect(
             lambda x: self.edit_network_args("preset", x, True)
         )
-        self.widget.network_dim_input.valueChanged.connect(lambda x: self.edit_args("network_dim", x))
-        self.widget.conv_dim_input.valueChanged.connect(lambda x: self.edit_network_args("conv_dim", x, True))
+        self.widget.network_dim_input.valueChanged.connect(self._on_network_dim_changed)
+        self.widget.conv_dim_input.valueChanged.connect(self._on_conv_dim_changed)
         self.widget.network_alpha_input.valueChanged.connect(
             lambda x: self.edit_args("network_alpha", round(x, 2))
         )
@@ -120,7 +133,7 @@ class NetworkWidget(BaseWidget):
         )
         self.widget.lora_fa_enable.clicked.connect(lambda x: self.edit_args("fa", x, True))
         self.widget.add_network_arg_button.clicked.connect(self.add_network_arg)
-        
+
         self.widget.train_blocks_selector.currentTextChanged.connect(
             lambda x: self.edit_network_args("train_blocks", x.lower())
         )
@@ -130,7 +143,7 @@ class NetworkWidget(BaseWidget):
             self.edit_args("network_args", {})
         if name in self.args["network_args"]:
             del self.args["network_args"][name]
-        if optional and (not value or value is False):
+        if optional and (value is None or value is False or (isinstance(value, str) and not value)):
             return
 
         self.args["network_args"][name] = value
@@ -161,7 +174,7 @@ class NetworkWidget(BaseWidget):
         self.toggle_kohya(algo in {"lora", "locon", "dylora"})
         dora = self.toggle_lycoris(
             algo not in {"lora", "locon", "dylora"},
-            algo in {"locon (lycoris)", "loha", "lokr", "abba"},
+            algo in {"locon (lycoris)", "loha", "lokr", "abba", "gora", "ralora", "lora2"},
         )
         self.lycoris = algo not in {"lora", "locon", "dylora"}
         self.widget.bypass_mode_enable.setEnabled(self.lycoris and not dora)
@@ -174,8 +187,35 @@ class NetworkWidget(BaseWidget):
         self.toggle_block_weight(algo in {"lora", "locon", "dylora"}, algo == "lora")
         self.toggle_dropout(
             algo != "ia3",
-            algo in {"locon (lycoris)", "loha", "lokr", "abba"} and self.widget.dora_enable.isChecked(),
+            algo in {"locon (lycoris)", "loha", "lokr", "abba", "gora", "ralora", "lora2"} and self.widget.dora_enable.isChecked(),
         )
+        # OrthoLoRA: Linear-only, disable conv dim/alpha
+        if algo == "ortholora":
+            self.toggle_conv(False)
+
+        # GoRA: alpha is forced to equal dim, so disable alpha inputs and sync values
+        is_gora = (algo in {"gora", "ralora"})
+        self.widget.network_alpha_input.setEnabled(not is_gora)
+        self.widget.conv_alpha_input.setEnabled(not is_gora)
+        if is_gora:
+            self.widget.network_alpha_input.setValue(float(self.widget.network_dim_input.value()))
+            self.widget.conv_alpha_input.setValue(float(self.widget.conv_dim_input.value()))
+
+    def _on_network_dim_changed(self, value: int) -> None:
+        self.edit_args("network_dim", value)
+        if self.widget.algo_select.currentText().lower() in {"gora", "ralora"}:
+            self.widget.network_alpha_input.blockSignals(True)
+            self.widget.network_alpha_input.setValue(float(value))
+            self.widget.network_alpha_input.blockSignals(False)
+            self.edit_args("network_alpha", round(float(value), 2))
+
+    def _on_conv_dim_changed(self, value: int) -> None:
+        self.edit_network_args("conv_dim", value, True)
+        if self.widget.algo_select.currentText().lower() in {"gora", "ralora"}:
+            self.widget.conv_alpha_input.blockSignals(True)
+            self.widget.conv_alpha_input.setValue(float(value))
+            self.widget.conv_alpha_input.blockSignals(False)
+            self.edit_network_args("conv_alpha", float(value), True)
 
     def change_min_timestep(self, value: int) -> None:
         if value >= self.widget.max_timestep_input.value():
@@ -198,13 +238,19 @@ class NetworkWidget(BaseWidget):
             return
         self.edit_args(args[index - 1], True)
 
-    # handles enabling and disabling of conv_dim, and conv_alpha
+    # conv_dim and conv_alpha: when enabled (non-LoRA algos), setting to 0 disables conv layers
     def toggle_conv(self, toggle: bool) -> None:
         self.widget.conv_dim_input.setEnabled(toggle)
         self.widget.conv_alpha_input.setEnabled(toggle)
 
-        self.edit_network_args("conv_dim", self.widget.conv_dim_input.value() if toggle else None, True)
-        self.edit_network_args("conv_alpha", self.widget.conv_alpha_input.value() if toggle else None, True)
+        if toggle:
+            # Pass actual value (including 0 to disable conv layers)
+            self.edit_network_args("conv_dim", self.widget.conv_dim_input.value(), True)
+            self.edit_network_args("conv_alpha", self.widget.conv_alpha_input.value(), True)
+        else:
+            # Remove from args entirely for baseline LoRA
+            self.edit_network_args("conv_dim", None, True)
+            self.edit_network_args("conv_alpha", None, True)
 
     def toggle_lycoris(self, toggle: bool, toggle_dora: bool) -> None:
         self.widget.cp_enable.setEnabled(toggle)
@@ -315,7 +361,7 @@ class NetworkWidget(BaseWidget):
             dora = False
         self.widget.dora_enable.setEnabled(
             not bypass
-            and self.widget.algo_select.currentText().lower() in {"locon (lycoris)", "loha", "lokr", "abba"}
+            and self.widget.algo_select.currentText().lower() in {"locon (lycoris)", "loha", "lokr", "abba", "gora", "ralora", "lora2", "ortholora"}
         )
         self.widget.bypass_mode_enable.setEnabled(not dora)
         self.edit_network_args("dora_wd", dora if self.widget.dora_enable.isEnabled() else False, True)
@@ -436,6 +482,9 @@ class NetworkWidget(BaseWidget):
                 "glora": "GLoRA",
                 "abba": "ABBA",
                 "tlora": "TLora",
+                "gora": "GoRA",
+                "ralora": "RaLoRA",
+                "lora2": "LoRA2",
             }
             algo_key = str(network_args.get("algo", "")).lower()
             if algo_key in algo_modes:
@@ -449,12 +498,17 @@ class NetworkWidget(BaseWidget):
 
         # update element inputs
         self.widget.lycoris_preset_input.setText(network_args.get("preset", ""))
-        self.widget.network_dim_input.setValue(args.get("network_dim", 32))
-        self.widget.conv_dim_input.setValue(network_args.get("conv_dim", 32))
-        self.widget.network_alpha_input.setValue(args.get("network_alpha", 16.0))
-        self.widget.conv_alpha_input.setValue(network_args.get("conv_alpha", 16.0))
-        self.widget.min_timestep_input.setValue(args.get("min_timestep", 0))
-        self.widget.max_timestep_input.setValue(args.get("max_timestep", 1000))
+        self.widget.network_dim_input.setValue(args.get("network_dim", self.DEFAULTS["network_dim"]))
+        self.widget.conv_dim_input.setValue(network_args.get("conv_dim", 16))
+        if self.widget.algo_select.currentText().lower() in {"gora", "ralora"}:
+            # GoRA forces alpha = dim; ignore TOML alpha values
+            self.widget.network_alpha_input.setValue(float(self.widget.network_dim_input.value()))
+            self.widget.conv_alpha_input.setValue(float(self.widget.conv_dim_input.value()))
+        else:
+            self.widget.network_alpha_input.setValue(args.get("network_alpha", self.DEFAULTS["network_alpha"]))
+            self.widget.conv_alpha_input.setValue(network_args.get("conv_alpha", 32.0))
+        self.widget.min_timestep_input.setValue(args.get("min_timestep", self.DEFAULTS["min_timestep"]))
+        self.widget.max_timestep_input.setValue(args.get("max_timestep", self.DEFAULTS["max_timestep"]))
         if "network_train_unet_only" in args:
             self.widget.unet_te_both_select.setCurrentIndex(1)
         elif "network_train_text_encoder_only" in args:
@@ -483,7 +537,7 @@ class NetworkWidget(BaseWidget):
         self.widget.rescale_enable.setChecked(network_args.get("rescaled", False))
         self.widget.constrain_enable.setChecked(bool(network_args.get("constraint", False)))
         self.widget.constrain_input.setText(str(network_args.get("constraint", "")))
-        self.widget.lora_fa_enable.setEnabled(args.get("fa", False))
+        self.widget.lora_fa_enable.setChecked(args.get("fa", False))
         self.widget.train_blocks_selector.setCurrentText(str(network_args.get("train_blocks", "")))
 
         # update block widgets
@@ -546,6 +600,10 @@ class NetworkWidget(BaseWidget):
             "down_lr_weight",
             "mid_lr_weight",
             "up_lr_weight",
+            "block_dims",
+            "block_alphas",
+            "conv_block_dims",
+            "conv_block_alphas",
         ]
         for _ in range(len(self.network_args)):
             self.remove_network_arg(self.network_args[0])

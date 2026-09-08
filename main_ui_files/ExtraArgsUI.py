@@ -43,6 +43,7 @@ class ExtraArgsWidget(BaseWidget):
         self.dataset_args = {}
         for arg in self.extra_args:
             name, value, is_dataset = arg.get_arg()
+            name = (name or "").strip()
             if not name:
                 continue
             value_str = "" if value is None else str(value)
@@ -93,11 +94,19 @@ class ExtraArgsWidget(BaseWidget):
 
     def get_validation_errors(self) -> list[str]:
         errors: list[str] = []
+        seen = set()
         for arg in self.extra_args:
-            name, value, _ = arg.get_arg()
-            if not name:
-                continue
+            name, value, is_dataset = arg.get_arg()
+            name = (name or "").strip()
             value_str = "" if value is None else str(value)
+            if not name:
+                if value_str.strip():
+                    errors.append("Extra arg has a value but no name; enter a name or remove the row.")
+                continue
+            identity = (is_dataset, name)
+            if identity in seen:
+                errors.append(f"Duplicate extra arg '{name}'; keep one row for this argument.")
+            seen.add(identity)
             if not value_str.strip():
                 errors.append(
                     f"Extra arg '{name}' has no value; remove it or provide a value (use 'true'/'false' for booleans) before saving TOML or training."

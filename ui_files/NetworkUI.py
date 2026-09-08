@@ -317,7 +317,7 @@ class Ui_network_ui(object):
         self.network_dim_input.setFocusPolicy(Qt.StrongFocus)
         self.network_dim_input.setMinimum(1)
         self.network_dim_input.setMaximum(16777215)
-        self.network_dim_input.setValue(16)
+        self.network_dim_input.setValue(32)
 
         self.formLayout.setWidget(0, QFormLayout.FieldRole, self.network_dim_input)
 
@@ -332,7 +332,7 @@ class Ui_network_ui(object):
         self.network_alpha_input.setFocusPolicy(Qt.StrongFocus)
         self.network_alpha_input.setDecimals(2)
         self.network_alpha_input.setMaximum(16777215.000000000000000)
-        self.network_alpha_input.setValue(32.000000000000000)
+        self.network_alpha_input.setValue(16.000000000000000)
 
         self.formLayout.setWidget(1, QFormLayout.FieldRole, self.network_alpha_input)
 
@@ -371,6 +371,10 @@ class Ui_network_ui(object):
         self.algo_select.addItem("GLoRA")
         self.algo_select.addItem("ABBA")
         self.algo_select.addItem("TLora")
+        self.algo_select.addItem("GoRA")
+        self.algo_select.addItem("RaLoRA")
+        self.algo_select.addItem("LoRA2")
+        self.algo_select.addItem("OrthoLoRA")
         self.algo_select.setObjectName(u"algo_select")
         self.algo_select.setFocusPolicy(Qt.StrongFocus)
 

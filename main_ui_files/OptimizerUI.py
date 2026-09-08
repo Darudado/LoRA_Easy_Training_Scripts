@@ -8,6 +8,13 @@ import re
 
 
 class OptimizerWidget(BaseWidget):
+    DEFAULTS = {
+        "optimizer_type": "AdamW",
+        "lr_scheduler": "cosine",
+        "learning_rate": 1e-4,
+        "max_grad_norm": 1.0,
+        "loss_type": "l2",
+    }
     maskedLossChecked = Signal(bool)
 
     def __init__(self, parent: QWidget = None) -> None:
@@ -16,13 +23,6 @@ class OptimizerWidget(BaseWidget):
         self.widget = Ui_optimizer_ui()
 
         self.name = "optimizer_args"
-        self.args = {
-            "optimizer_type": "AdamW",
-            "lr_scheduler": "cosine",
-            "learning_rate": 1e-4,
-            "max_grad_norm": 1.0,
-            "loss_type": "l2",
-        }
         self.opt_args = [OptimizerItem(arg_name="weight_decay", arg_value="0.1")]
 
         self.setup_widget()
@@ -47,6 +47,7 @@ class OptimizerWidget(BaseWidget):
         self.widget.warmup_input.valueChanged.connect(
             lambda x: self.edit_args("warmup_ratio", round(x, 2), True)
         )
+        self.widget.zero_lr_warmup_enable.clicked.connect(self.enable_disable_zero_lr_warmup)
         self.widget.min_lr_input.textChanged.connect(lambda x: self.edit_lr_args("min_lr", x, True))
         self.widget.cosine_restart_input.valueChanged.connect(
             lambda x: self.edit_args("lr_scheduler_num_cycles", x)
@@ -72,6 +73,12 @@ class OptimizerWidget(BaseWidget):
         self.widget.huber_param_input.valueChanged.connect(lambda x: self.edit_args("huber_c", round(x, 4)))
         self.widget.add_opt_button.clicked.connect(self.add_optimizer_arg)
         self.widget.d_param_input.valueChanged.connect(lambda x: self.edit_lr_args("d", round(x, 4)))
+        self.widget.decay_ratio_input.valueChanged.connect(
+            lambda x: self.edit_args("lr_decay_steps", round(x, 2), True)
+        )
+        self.widget.decay_type_selector.currentTextChanged.connect(
+            lambda x: self.edit_lr_args("decay_type", x.lower())
+        )
 
     def edit_lr(self, name: str, value: str, optional: bool = False) -> None:
         try:
@@ -176,6 +183,7 @@ class OptimizerWidget(BaseWidget):
             "lr_scheduler_power",
             "lr_scheduler_type",
             "lr_scheduler_args",
+            "lr_decay_steps",
         ]
         for arg in args:
             if arg in self.args:
@@ -185,6 +193,8 @@ class OptimizerWidget(BaseWidget):
         self.widget.min_lr_input.setEnabled(False)
         self.widget.gamma_input.setEnabled(False)
         self.widget.d_param_input.setEnabled(False)
+        self.widget.decay_ratio_input.setEnabled(False)
+        self.widget.decay_type_selector.setEnabled(False)
 
         if value == "cosine_with_restarts":
             self.widget.cosine_restart_input.setEnabled(True)
@@ -211,7 +221,6 @@ class OptimizerWidget(BaseWidget):
                 True,
             )
             self.edit_lr_args("gamma", 1 - self.widget.gamma_input.value(), True)
-            return
         elif value in {"rex_annealing_warm_restarts_(RAWR)", "rex"}:
             self.widget.cosine_restart_input.setEnabled(True)
             self.widget.min_lr_input.setEnabled(True)
@@ -229,17 +238,20 @@ class OptimizerWidget(BaseWidget):
             )
             self.edit_lr_args("gamma", 1 - self.widget.gamma_input.value(), True)
             self.edit_lr_args("d", self.widget.d_param_input.value(), True)
-            return
         elif value == "polynomial":
             self.widget.poly_power_input.setEnabled(True)
             self.edit_args("lr_scheduler_power", self.widget.poly_power_input.value(), True)
         elif value in {"warmup_stable_decay", "wsd"}:
             self.widget.cosine_restart_input.setEnabled(True)
+            self.widget.decay_ratio_input.setEnabled(True)
+            self.widget.decay_type_selector.setEnabled(True)
             self.edit_args(
                 "lr_scheduler_num_cycles",
                 self.widget.cosine_restart_input.value(),
                 True,
             )
+            self.edit_args("lr_decay_steps", round(self.widget.decay_ratio_input.value(), 2), True)
+            self.edit_lr_args("decay_type", self.widget.decay_type_selector.currentText().lower())
         elif value in {
             "CosineAnnealingLR",
             "cosineannealinglr",
@@ -273,6 +285,15 @@ class OptimizerWidget(BaseWidget):
         if not checked:
             return
         self.edit_args("warmup_ratio", self.widget.warmup_input.value(), True)
+
+    @Slot(bool)
+    def enable_disable_zero_lr_warmup(self, checked: bool) -> None:
+        """Enable or disable zero LR warmup states."""
+        if "zero_lr_warmup" in self.args:
+            del self.args["zero_lr_warmup"]
+        if not checked:
+            return
+        self.edit_args("zero_lr_warmup", checked, True)
 
     @Slot(bool)
     def enable_disable_unet(self, checked: bool) -> None:
@@ -320,7 +341,7 @@ class OptimizerWidget(BaseWidget):
         scheduler_args: dict = args.get("lr_scheduler_args", {})
 
         # update element inputs
-        optimizer_type = args.get("optimizer_type", "AdamW")
+        optimizer_type = args.get("optimizer_type", self.DEFAULTS["optimizer_type"])
         self.widget.optimizer_type_selector.setCurrentText(
             "Came" if len(optimizer_type.split(".")) > 1 else optimizer_type
         )
@@ -332,13 +353,14 @@ class OptimizerWidget(BaseWidget):
             )
         else:
             self.widget.lr_scheduler_selector.setCurrentText(
-                args.get("lr_scheduler", "cosine").replace("_", " ")
+                args.get("lr_scheduler", self.DEFAULTS["lr_scheduler"]).replace("_", " ")
             )
-        self.widget.loss_type_selector.setCurrentText(args.get("loss_type", "L2").replace("_", " ").title())
-        self.widget.main_lr_input.setText(str(args.get("learning_rate", "1e-4")))
+        self.widget.loss_type_selector.setCurrentText(args.get("loss_type", self.DEFAULTS["loss_type"]).replace("_", " ").title())
+        self.widget.main_lr_input.setText(str(args.get("learning_rate", self.DEFAULTS["learning_rate"])))
         self.widget.warmup_enable.setChecked(bool(args.get("warmup_ratio", False)))
         self.widget.warmup_input.setValue(args.get("warmup_ratio", 0.0))
-        self.widget.min_lr_input.setText(str(args.get("lr_scheduler_args", {}).get("min_lr", "1e-6")))
+        self.widget.zero_lr_warmup_enable.setChecked(args.get("zero_lr_warmup", False))
+        self.widget.min_lr_input.setText(str(args.get("lr_scheduler_args", {}).get("min_lr", "0.0")))
         self.widget.cosine_restart_input.setValue(args.get("lr_scheduler_num_cycles", 1))
         self.widget.unet_lr_enable.setChecked(bool(args.get("unet_lr", False)))
         self.widget.unet_lr_input.setText(str(args.get("unet_lr", "1e-4")))
@@ -357,7 +379,7 @@ class OptimizerWidget(BaseWidget):
         self.widget.gamma_input.setValue(round(1 - args.get("lr_scheduler_args", {}).get("gamma", 0.9), 2))
         self.widget.scale_weight_enable.setChecked(bool(args.get("scale_weight_norms", False)))
         self.widget.scale_weight_input.setValue(args.get("scale_weight_norms", 1.0))
-        self.widget.max_grad_norm_input.setValue(args.get("max_grad_norm", 1.0))
+        self.widget.max_grad_norm_input.setValue(args.get("max_grad_norm", self.DEFAULTS["max_grad_norm"]))
         self.widget.min_snr_enable.setChecked(bool(args.get("min_snr_gamma", False)))
         self.widget.min_snr_input.setValue(args.get("min_snr_gamma", 5.0))
         self.widget.zero_term_enable.setChecked(args.get("zero_terminal_snr", False))
@@ -366,6 +388,8 @@ class OptimizerWidget(BaseWidget):
         )
         self.widget.huber_param_input.setValue(args.get("huber_c", 0.1))
         self.widget.d_param_input.setValue(scheduler_args.get("d", 0.9))
+        self.widget.decay_ratio_input.setValue(args.get("lr_decay_steps", 0.1))
+        self.widget.decay_type_selector.setCurrentText(scheduler_args.get("decay_type", "1-sqrt"))
 
         for _ in range(len(self.opt_args)):
             self.remove_optimizer_arg(self.opt_args[0])
@@ -383,6 +407,7 @@ class OptimizerWidget(BaseWidget):
         self.change_loss_type(self.widget.loss_type_selector.currentText())
         self.edit_lr("learning_rate", self.widget.main_lr_input.text())
         self.enable_disable_warmup(self.widget.warmup_enable.isChecked())
+        self.enable_disable_zero_lr_warmup(self.widget.zero_lr_warmup_enable.isChecked())
         self.enable_disable_unet(self.widget.unet_lr_enable.isChecked())
         self.edit_te_lr("text_encoder_lr", te_lr_display_text)
         self.enable_disable_te(self.widget.te_lr_enable.isChecked())

@@ -115,6 +115,9 @@ class ArgsWidget(QtWidgets.QWidget):
                 general_args.edit_args("fp8_base", False, True)
 
         self.anima_widget.Toggled.connect(update_fp8_for_anima)
+        self.anima_widget.ResolutionScheduleToggled.connect(
+            lambda enabled: general_args.widget.batch_size_input.setEnabled(not enabled)
+        )
 
         # Connect attention mode changes to Anima's split_attn auto-enable
         def sync_attn_to_anima() -> None:
