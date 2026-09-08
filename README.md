@@ -1,5 +1,12 @@
 # Updates
 
+## 09/08/2026
+- Added Anima resolution schedules for running a single training job through ordered, aspect-ratio-preserving resolution stages.
+  - Configure each stage's resolution, percentage of total training steps, and batch size from the Anima UI. The final stage automatically receives any remaining steps.
+  - At stage boundaries, training rebuilds only the dataset buckets and DataLoader; the model, optimizer, LR scheduler, and accelerator state remain active.
+  - Stage-specific latent-cache namespaces prevent cache reuse across resolutions.
+  - Resolution schedules are saved with checkpoints and validated on resume. Use `--resolution_schedule_force_resume` only when intentionally resuming with a changed schedule.
+
 ## 05/30/2026
 - Swap to using uv instead of pip. If you have an existing install, git pull first, then run the typical update script, otherwise you may have to run the updat script again should it fail.
 
