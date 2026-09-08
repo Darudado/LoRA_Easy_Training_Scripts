@@ -280,6 +280,18 @@ The themes also save between boots
 
 ![theme remembering gif](https://raw.githubusercontent.com/67372a/LoRA_Easy_Training_Scripts/main/images_gifs/remember_theme_on_reload.gif)
 
+### Start training from a saved TOML
+
+You can start training directly from a TOML saved by the UI. The CLI automatically creates the internal config and dataset TOMLs required by the training scripts, so you do not need to edit or split the saved file manually.
+
+From the repository root:
+
+```bash
+python train_from_toml.py --toml path/to/saved.toml --anima
+```
+
+Use `--dry-run` to generate the files and print the command without starting training. Standard LoRA training can be started without `--anima`; `--accelerate --num-processes 2` enables multi-process training. The saved TOML remains the source of the training arguments.
+
 ## Configuration
 
 I'd like to take a moment and look at what the output of the TOML saving and loading system looks like so that people can change it if they want outside of the UI.
