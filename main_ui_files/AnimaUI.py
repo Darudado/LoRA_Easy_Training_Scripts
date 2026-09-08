@@ -155,15 +155,17 @@ class AnimaWidget(BaseWidget):
         final.percent.blockSignals(False)
         final.percent.setEnabled(False)
         has_empty_stage = any(row.percent.value() <= 0 for row in self._schedule_rows[:-1])
-        self.schedule_total_label.setText(f"Total: {requested + remaining}% (final stage automatic)")
+        self.schedule_total_label.setText(
+            "Invalid schedule: each stage needs a positive percentage; leave a remainder for the final stage."
+            if requested >= 100 or has_empty_stage
+            else f"Total: {requested + remaining}% (final stage automatic)"
+        )
         self.schedule_total_label.setStyleSheet("color: #b00020;" if requested >= 100 or has_empty_stage else "")
         self.add_schedule_button.setEnabled(requested < 100)
         if not self.schedule_enabled.isChecked():
             self.args.pop("resolution_schedule", None)
             return
-        if requested >= 100 or has_empty_stage:
-            self.args.pop("resolution_schedule", None)
-            return
+        # Preserve invalid enabled schedules so backend validation stops training.
         schedule = []
         for row in self._schedule_rows[:-1]:
             schedule.append({"resolution": row.resolution.value(), "percent": row.percent.value(), "batch_size": row.batch_size.value()})

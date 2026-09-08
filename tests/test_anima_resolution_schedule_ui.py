@@ -79,6 +79,20 @@ class AnimaResolutionScheduleUiTest(unittest.TestCase):
             ],
         )
 
+    def test_invalid_enabled_schedule_is_preserved_for_backend_validation(self):
+        widget = AnimaWidget()
+        widget.schedule_enabled.setChecked(True)
+        widget.add_schedule_row()
+        for percent in (100, 0):
+            with self.subTest(percent=percent):
+                widget._schedule_rows[0].percent.setValue(percent)
+                widget._sync_resolution_schedule()
+                self.assertIn("resolution_schedule", widget.args)
+                self.assertEqual(widget.args["resolution_schedule"][0]["percent"], percent)
+                self.assertIn("Invalid", widget.schedule_total_label.text())
+        widget.schedule_enabled.setChecked(False)
+        self.assertNotIn("resolution_schedule", widget.args)
+
 
 if __name__ == "__main__":
     unittest.main()
