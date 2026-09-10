@@ -173,6 +173,13 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 
+#local folders
+
+# Local folder
+tomlpresets/*.*
+output/
+docs/
+
 runtime_store/
 auto_save_store/
 queue_store/
@@ -188,3 +195,5 @@ config.json
 .zoo/
 .roomodes
 /plans
+
+

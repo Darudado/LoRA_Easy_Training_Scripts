@@ -1,6 +1,15 @@
 from PySide6.QtCore import Signal
 from PySide6.QtGui import QIcon
-from PySide6.QtWidgets import QWidget, QPushButton
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QSpinBox,
+    QVBoxLayout,
+    QWidget,
+)
 from modules.DragDropLineEdit import DragDropLineEdit
 from ui_files.AnimaUI import Ui_anima_ui
 from modules.BaseWidget import BaseWidget
@@ -9,6 +18,7 @@ from pathlib import Path
 
 class AnimaWidget(BaseWidget):
     Toggled = Signal(bool)  # send to general args
+    ResolutionScheduleToggled = Signal(bool)
 
     def __init__(self, parent: QWidget = None) -> None:
         super().__init__(parent)
@@ -37,6 +47,130 @@ class AnimaWidget(BaseWidget):
         setup_file(self.widget.qwen3_model_input, self.widget.qwen3_model_selector)
         setup_file(self.widget.vae_model_input, self.widget.vae_model_selector)
         setup_file(self.widget.t5_tokenizer_input, self.widget.t5_tokenizer_selector, folder=True)
+        self._setup_resolution_schedule_editor()
+
+    def _setup_resolution_schedule_editor(self) -> None:
+        self._schedule_rows = []
+        self._loading_resolution_schedule = False
+        self.schedule_group = QGroupBox("Multi Resolution Schedule", self.widget.anima_training_box)
+        layout = QVBoxLayout(self.schedule_group)
+        description = QLabel(
+            "Train sequentially at multiple resolutions. Enable this section, then set each stage's resolution, "
+            "whole-step percentage, and batch size. Aspect ratio is preserved; small images never upscale."
+        )
+        description.setWordWrap(True)
+        description.setToolTip("The model, optimizer, and learning-rate schedule remain live between stages.")
+        layout.addWidget(description)
+
+        self.schedule_enabled = QCheckBox("Enable multi resolution schedule")
+        self.schedule_enabled.setToolTip("Per-stage batch sizes replace General Args batch size while enabled.")
+        layout.addWidget(self.schedule_enabled)
+
+        header = QHBoxLayout()
+        for text in ("Resolution", "Steps %", "Batch size", ""):
+            label = QLabel(text)
+            label.setMinimumWidth(90 if text else 24)
+            header.addWidget(label)
+        layout.addLayout(header)
+        self.schedule_rows_layout = QVBoxLayout()
+        layout.addLayout(self.schedule_rows_layout)
+
+        self.add_schedule_button = QPushButton("Add stage")
+        self.add_schedule_button.setToolTip("Add another sequential stage. The final stage always receives remaining steps.")
+        layout.addWidget(self.add_schedule_button)
+        self.schedule_total_label = QLabel()
+        layout.addWidget(self.schedule_total_label)
+        self.widget.gridLayout_2.addWidget(self.schedule_group, 1, 0, 1, 1)
+
+        self._append_schedule_row(1024, 1)
+        self.schedule_enabled.toggled.connect(self._on_schedule_toggled)
+        self.add_schedule_button.clicked.connect(self.add_schedule_row)
+        self._sync_resolution_schedule()
+
+    def _append_schedule_row(self, resolution: int, batch_size: int, percent: int = 100) -> None:
+        row_widget = QWidget(self.schedule_group)
+        layout = QHBoxLayout(row_widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+        resolution_input = QSpinBox()
+        resolution_input.setRange(64, 16384)
+        resolution_input.setSingleStep(64)
+        resolution_input.setValue(resolution)
+        resolution_input.setToolTip("Maximum stage area, expressed as a square side. Buckets preserve image aspect ratio.")
+        percent_input = QSpinBox()
+        percent_input.setRange(0, 100)
+        percent_input.setSuffix("%")
+        percent_input.setValue(percent)
+        batch_input = QSpinBox()
+        batch_input.setRange(1, 1024)
+        batch_input.setValue(batch_size)
+        remove_button = QPushButton("−")
+        remove_button.setToolTip("Remove this resolution stage")
+        for control in (resolution_input, percent_input, batch_input, remove_button):
+            layout.addWidget(control)
+        row = type("ResolutionScheduleRow", (), {})()
+        row.widget = row_widget
+        row.resolution = resolution_input
+        row.percent = percent_input
+        row.batch_size = batch_input
+        row.remove = remove_button
+        self._schedule_rows.append(row)
+        self.schedule_rows_layout.addWidget(row_widget)
+        resolution_input.valueChanged.connect(self._sync_resolution_schedule)
+        percent_input.valueChanged.connect(self._sync_resolution_schedule)
+        batch_input.valueChanged.connect(self._sync_resolution_schedule)
+        remove_button.clicked.connect(lambda: self._remove_schedule_row(row))
+
+    def add_schedule_row(self) -> None:
+        if self._schedule_rows:
+            last = self._schedule_rows[-1]
+            self._append_schedule_row(last.resolution.value(), last.batch_size.value())
+        else:
+            self._append_schedule_row(1024, 1)
+        self._sync_resolution_schedule()
+
+    def _remove_schedule_row(self, row) -> None:
+        if len(self._schedule_rows) == 1:
+            return
+        self._schedule_rows.remove(row)
+        self.schedule_rows_layout.removeWidget(row.widget)
+        row.widget.deleteLater()
+        self._sync_resolution_schedule()
+
+    def _on_schedule_toggled(self, enabled: bool) -> None:
+        self.ResolutionScheduleToggled.emit(enabled)
+        self._sync_resolution_schedule()
+
+    def _sync_resolution_schedule(self, *_args) -> None:
+        if self._loading_resolution_schedule:
+            return
+        if not self._schedule_rows:
+            return
+        requested = sum(row.percent.value() for row in self._schedule_rows[:-1])
+        remaining = max(0, 100 - requested)
+        final = self._schedule_rows[-1]
+        for row in self._schedule_rows[:-1]:
+            row.percent.setEnabled(True)
+        final.percent.blockSignals(True)
+        final.percent.setValue(remaining)
+        final.percent.blockSignals(False)
+        final.percent.setEnabled(False)
+        has_empty_stage = any(row.percent.value() <= 0 for row in self._schedule_rows[:-1])
+        self.schedule_total_label.setText(
+            "Invalid schedule: each stage needs a positive percentage; leave a remainder for the final stage."
+            if requested >= 100 or has_empty_stage
+            else f"Total: {requested + remaining}% (final stage automatic)"
+        )
+        self.schedule_total_label.setStyleSheet("color: #b00020;" if requested >= 100 or has_empty_stage else "")
+        self.add_schedule_button.setEnabled(requested < 100)
+        if not self.schedule_enabled.isChecked():
+            self.args.pop("resolution_schedule", None)
+            return
+        # Preserve invalid enabled schedules so backend validation stops training.
+        schedule = []
+        for row in self._schedule_rows[:-1]:
+            schedule.append({"resolution": row.resolution.value(), "percent": row.percent.value(), "batch_size": row.batch_size.value()})
+        schedule.append({"resolution": final.resolution.value(), "batch_size": final.batch_size.value()})
+        self.args["resolution_schedule"] = schedule
 
     def setup_connections(self) -> None:
         self.widget.anima_training_box.clicked.connect(self.enable_disable)
@@ -118,6 +252,7 @@ class AnimaWidget(BaseWidget):
         self.change_flash_attn(self.widget.flash_attn_enable.isChecked())
         self.edit_args("split_attn", self.widget.split_attn_enable.isChecked(), True)
         self.edit_args("unsloth_offload_checkpointing", self.widget.unsloth_offload_checkpointing.isChecked(), True)
+        self._sync_resolution_schedule()
 
     def external_enable_disable(self, checked: bool) -> None:
         self.args = {}
@@ -207,5 +342,24 @@ class AnimaWidget(BaseWidget):
         self.widget.flash_attn_enable.setChecked(args.get("attn_mode", "") == "flash")
         self.widget.split_attn_enable.setChecked(args.get("split_attn", False))
         self.widget.unsloth_offload_checkpointing.setChecked(args.get("unsloth_offload_checkpointing", False))
+
+        schedule = args.get("resolution_schedule")
+        self._loading_resolution_schedule = True
+        try:
+            if schedule:
+                while len(self._schedule_rows) > 1:
+                    self._remove_schedule_row(self._schedule_rows[-1])
+                first = schedule[0]
+                self._schedule_rows[0].resolution.setValue(first.get("resolution", 1024))
+                self._schedule_rows[0].batch_size.setValue(first.get("batch_size", 1))
+                self._schedule_rows[0].percent.setValue(first.get("percent", 100))
+                for stage in schedule[1:]:
+                    self._append_schedule_row(stage.get("resolution", 1024), stage.get("batch_size", 1), stage.get("percent", 100))
+                self.schedule_enabled.setChecked(True)
+            else:
+                self.schedule_enabled.setChecked(False)
+        finally:
+            self._loading_resolution_schedule = False
+        self._sync_resolution_schedule()
 
         self.enable_disable(self.widget.anima_training_box.isChecked())
