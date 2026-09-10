@@ -1,5 +1,12 @@
 # Updates
 
+## 09/08/2026
+- Added Anima resolution schedules for running a single training job through ordered, aspect-ratio-preserving resolution stages.
+  - Configure each stage's resolution, percentage of total training steps, and batch size from the Anima UI. The final stage automatically receives any remaining steps.
+  - At stage boundaries, training rebuilds only the dataset buckets and DataLoader; the model, optimizer, LR scheduler, and accelerator state remain active.
+  - Stage-specific latent-cache namespaces prevent cache reuse across resolutions.
+  - Resolution schedules are saved with checkpoints and validated on resume. Use `--resolution_schedule_force_resume` only when intentionally resuming with a changed schedule.
+
 ## 05/30/2026
 - Swap to using uv instead of pip. If you have an existing install, git pull first, then run the typical update script, otherwise you may have to run the updat script again should it fail.
 
@@ -272,6 +279,18 @@ And finally, we have the ability to switch themes. These themes are only possibl
 The themes also save between boots
 
 ![theme remembering gif](https://raw.githubusercontent.com/67372a/LoRA_Easy_Training_Scripts/main/images_gifs/remember_theme_on_reload.gif)
+
+### Start training from a saved TOML
+
+You can start training directly from a TOML saved by the UI. The CLI automatically creates the internal config and dataset TOMLs required by the training scripts, so you do not need to edit or split the saved file manually.
+
+From the repository root:
+
+```bash
+python train_from_toml.py --toml path/to/saved.toml --anima
+```
+
+Use `--dry-run` to generate the files and print the command without starting training. Standard LoRA training can be started without `--anima`; `--accelerate --num-processes 2` enables multi-process training. The saved TOML remains the source of the training arguments.
 
 ## Configuration
 

@@ -1,4 +1,4 @@
 [submodule "backend"]
 	path = backend
 	url = https://github.com/Darudado/LoRA_Easy_Training_scripts_Backend
-	branch = refresh
+	branch = main
