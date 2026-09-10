@@ -290,7 +290,23 @@ From the repository root:
 python train_from_toml.py --toml path/to/saved.toml --anima
 ```
 
-Use `--dry-run` to generate the files and print the command without starting training. Standard LoRA training can be started without `--anima`; `--accelerate --num-processes 2` enables multi-process training. The saved TOML remains the source of the training arguments.
+The CLI accepts an unmodified TOML saved by the UI. It removes presentation-only
+fields, converts nested network/optimizer/scheduler options, resolves custom
+optimizers, and applies the same step-based warmup, restart, and logging-name
+transformations as the UI backend. Model family and training mode are inferred
+from the saved TOML, so `--anima`, `--sdxl`, `--flux`, and `--train-mode` are only
+needed as explicit overrides for older or incomplete presets. A conflicting
+override is rejected before runtime files are written.
+
+Use `--dry-run` to generate the files and print the command without starting
+training. `--accelerate --num-processes 2` enables multi-process training. The
+CLI automatically uses the backend training virtual environment when it exists.
+The saved TOML remains unchanged and is the source of the training arguments.
+
+Warmup or custom-scheduler restart ratios require a known total step count. A
+preset using those options should specify `max_train_steps`; epoch-based ratios
+that require dataset bucket scanning are rejected instead of being silently
+converted incorrectly.
 
 ## Configuration
 
